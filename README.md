@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>互動式數位拼圖遊戲</title>
+    <style>
+        :root {
+            --primary-color: #FF9F1C; /* 亮橘色 */
+            --secondary-color: #2EC4B6; /* 藍綠色 */
+            --bg-color: #FFFFFF;
+            --text-color: #333;
+            --gap-size: 2px;
+            --rows: 4;
+            --cols: 4;
+            --aspect-ratio: 1 / 1;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none; /* 防止選取文字干擾拖曳 */
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* 2. 視覺樣式設計：全頁背景浮水印 */
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('https://i.ibb.co/fVXG8mD0/14602771.webp');
+            background-repeat: repeat;
+            background-size: cover;
+            opacity: 0.5;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            text-shadow: 2px 2px 0px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+            text-align: center;
+            font-size: 2rem;
+        }
+
+        /* 控制區樣式 */
+        .controls {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        select, button, .file-upload-label {
+            padding: 10px 15px;
+            border: 2px solid var(--secondary-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            background: white;
+            color: var(--secondary-color);
+            transition: all 0.2s;
+            font-weight: bold;
+        }
+
+        button:hover, select:hover, .file-upload-label:hover {
+            background: var(--secondary-color);
+            color: white;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        /* 隱藏原生檔案上傳 input */
+        input[type="file"] {
+            display: none;
+        }
+
+        /* 遊戲容器 */
+        .game-container {
+            width: 100%;
+            max-width: 600px;
+            position: relative;
+            background: white;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+        }
+
+        /* 拼圖板：核心佈局 */
+        #puzzle-board {
+            width: 100%;
+            aspect-ratio: var(--aspect-ratio);
+            display: grid;
+            grid-template-columns: repeat(var(--cols), 1fr);
+            grid-template-rows: repeat(var(--rows), 1fr);
+            gap: var(--gap-size);
+            background-color: #ddd;
+            border: 2px solid var(--secondary-color);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 偷看模式：直接在 board 上顯示原圖 */
+        #puzzle-board.peeking {
+            background-image: var(--bg-image);
+            background-size: 100% 100%;
+            background-position: center;
+        }
+        
+        #puzzle-board.peeking .piece {
+            opacity: 0; /* 隱藏拼圖塊 */
+            pointer-events: none;
+        }
+
+        /* 拼圖塊樣式 */
+        .piece {
+            width: 100%;
+            height: 100%;
+            background-image: var(--bg-image);
+            /* 關鍵：計算背景大小以符合整個容器 */
+            background-size: calc(var(--cols) * 100% + (var(--cols) - 1) * var(--gap-size)) 
+                             calc(var(--rows) * 100% + (var(--rows) - 1) * var(--gap-size));
+            background-position: var(--pos-x) var(--pos-y);
+            cursor: grab;
+            transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .piece:active {
+            cursor: grabbing;
+        }
+
+        /* 點選選取樣式 */
+        .piece.selected {
+            z-index: 10;
+            box-shadow: 0 0 0 3px var(--primary-color), 0 0 10px rgba(255, 159, 28, 0.5);
+            transform: scale(0.95);
+            border-color: var(--primary-color);
+        }
+
+        /* 拖曳時的目標樣式 */
+        .piece.drag-over {
+            opacity: 0.6;
+            box-shadow: inset 0 0 0 4px var(--primary-color);
+        }
+
+        /* 勝利 Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 90%;
+            width: 400px;
+            border-top: 10px solid var(--primary-color);
+            animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes popIn {
+            from { transform: scale(0.5); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal h2 {
+            color: var(--primary-color);
+            margin-top: 0;
+        }
+
+        .modal p {
+            font-size: 1.2rem;
+            color: #555;
+            margin: 20px 0;
+        }
+
+        .modal-btn {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            font-size: 1.1rem;
+            border-radius: 25px;
+            box-shadow: 0 4px 0 #d6830e;
+        }
+        
+        .modal-btn:hover {
+            background: #ffae42;
+        }
+
+        .modal-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #d6830e;
+        }
+
+        /* RWD 調整 */
+        @media (max-width: 480px) {
+            h1 { font-size: 1.5rem; }
+            .controls { padding: 10px; }
+            button, select { font-size: 0.9rem; padding: 8px 12px; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>🧩 互動式數位拼圖</h1>
+
+    <!-- 控制區 -->
+    <div class="controls">
+        <!-- 關卡選擇 -->
+        <select id="level-select">
+            <option value="https://i.ibb.co/JR14WNs3/6272f22e-01e5-4814-9a0b-836a148ec340.webp">🐶 預設關卡 1 (可愛狗狗)</option>
+            <option value="https://i.ibb.co/YBszrdZM/upload-2025-11-28-1153231.jpg">🏞️ 預設關卡 2 (風景)</option>
+        </select>
+
+        <!-- 自訂上傳 -->
+        <label class="file-upload-label">
+            📁 上傳圖片
+            <input type="file" id="image-upload" accept="image/*">
+        </label>
+
+        <!-- 功能按鈕 -->
+        <button id="restart-btn">🔄 重新開始</button>
+        <!-- 偷看按鈕 (電腦按住，手機點擊切換) -->
+        <button id="peek-btn">👀 偷看原圖</button>
+    </div>
+
+    <!-- 遊戲區 -->
+    <div class="game-container">
+        <div id="puzzle-board">
+            <!-- 拼圖塊將由 JS 動態生成 -->
+        </div>
+    </div>
+
+    <!-- 勝利視窗 -->
+    <div class="modal-overlay" id="win-modal">
+        <div class="modal">
+            <h2>🎉 恭喜完成！</h2>
+            <p>你真棒！成功拼出了完整的圖片！</p>
+            <button class="modal-btn" onclick="resetGame()">再玩一次</button>
+        </div>
+    </div>
+
+    <script>
+        // 狀態變數
+        const state = {
+            rows: 4,
+            cols: 4,
+            pieces: [],
+            currentImage: '',
+            isDragging: false,
+            draggedEl: null,
+            selectedEl: null // For Click-to-Swap mode
+        };
+
+        // DOM 元素
+        const board = document.getElementById('puzzle-board');
+        const levelSelect = document.getElementById('level-select');
+        const imageUpload = document.getElementById('image-upload');
+        const restartBtn = document.getElementById('restart-btn');
+        const peekBtn = document.getElementById('peek-btn');
+        const modal = document.getElementById('win-modal');
+
+        // 初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            state.currentImage = levelSelect.value;
+            loadImage(state.currentImage);
+        });
+
+        // 監聽關卡切換
+        levelSelect.addEventListener('change', (e) => {
+            state.currentImage = e.target.value;
+            loadImage(state.currentImage);
+        });
+
+        // 監聽圖片上傳
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    state.currentImage = event.target.result;
+                    loadImage(state.currentImage);
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 監聽重新開始
+        restartBtn.addEventListener('click', () => {
+            shufflePieces();
+            state.selectedEl = null; // 重置選取狀態
+            updateSelectionVisuals();
+        });
+
+        // 偷看功能 (支援滑鼠按住 與 觸控按下)
+        const startPeek = () => board.classList.add('peeking');
+        const endPeek = () => board.classList.remove('peeking');
+
+        peekBtn.addEventListener('mousedown', startPeek);
+        peekBtn.addEventListener('mouseup', endPeek);
+        peekBtn.addEventListener('mouseleave', endPeek);
+        peekBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startPeek(); });
+        peekBtn.addEventListener('touchend', endPeek);
+
+        // 核心邏輯：載入圖片並計算網格
+        function loadImage(src) {
+            const img = new Image();
+            img.src = src;
+            img.onload = () => {
+                // 1. 計算比例與網格
+                const aspectRatio = img.width / img.height;
+                let rows, cols;
+
+                // 目標總片數約 12-16 片
+                if (aspectRatio >= 1.3) {
+                    // 寬圖
+                    cols = 4; rows = 3;
+                } else if (aspectRatio <= 0.7) {
+                    // 長圖
+                    cols = 3; rows = 4;
+                } else {
+                    // 接近方形
+                    cols = 4; rows = 4;
+                }
+
+                state.rows = rows;
+                state.cols = cols;
+
+                // 2. 設定 CSS 變數
+                document.documentElement.style.setProperty('--rows', rows);
+                document.documentElement.style.setProperty('--cols', cols);
+                document.documentElement.style.setProperty('--aspect-ratio', `${img.width} / ${img.height}`);
+                document.documentElement.style.setProperty('--bg-image', `url(${src})`);
+
+                // 3. 生成拼圖
+                createPuzzle();
+            };
+        }
+
+        // 生成拼圖塊
+        function createPuzzle() {
+            board.innerHTML = '';
+            state.pieces = [];
+            
+            const { rows, cols } = state;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const index = r * cols + c;
+                    const piece = document.createElement('div');
+                    piece.classList.add('piece');
+                    piece.draggable = true;
+                    
+                    // 設定此塊的正確 ID
+                    piece.dataset.correctIndex = index;
+                    
+                    // 計算背景圖位置 (Background Position)
+                    // 公式: 0% 到 100% 分佈在 (cols-1) 個間隔中
+                    const xPct = cols > 1 ? (c / (cols - 1)) * 100 : 0;
+                    const yPct = rows > 1 ? (r / (rows - 1)) * 100 : 0;
+                    
+                    piece.style.setProperty('--pos-x', `${xPct}%`);
+                    piece.style.setProperty('--pos-y', `${yPct}%`);
+
+                    // 加入事件監聽
+                    addInteractionListeners(piece);
+
+                    state.pieces.push(piece);
+                    board.appendChild(piece);
+                }
+            }
+
+            // 打亂拼圖
+            setTimeout(shufflePieces, 100);
+        }
+
+        // 打亂拼圖 (Fisher-Yates Shuffle on DOM elements)
+        function shufflePieces() {
+            // 從 DOM 移除所有元素
+            state.pieces.forEach(p => p.remove());
+            
+            // 打亂陣列
+            for (let i = state.pieces.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [state.pieces[i], state.pieces[j]] = [state.pieces[j], state.pieces[i]];
+            }
+
+            // 重新插入 DOM
+            state.pieces.forEach(p => board.appendChild(p));
+            
+            // 檢查是否太幸運直接完成 (極低機率)，若完成則再洗一次，避免剛開始就贏了
+            if (checkWin(true)) {
+                shufflePieces();
+            }
+        }
+
+        // 加入互動監聽 (Drag & Drop + Click to Swap)
+        function addInteractionListeners(piece) {
+            // --- Desktop: Drag & Drop ---
+            piece.addEventListener('dragstart', handleDragStart);
+            piece.addEventListener('dragover', handleDragOver);
+            piece.addEventListener('dragenter', handleDragEnter);
+            piece.addEventListener('dragleave', handleDragLeave);
+            piece.addEventListener('drop', handleDrop);
+            piece.addEventListener('dragend', handleDragEnd);
+
+            // --- Mobile/Click: Click to Swap ---
+            piece.addEventListener('click', handleClick);
+        }
+
+        // --- Drag & Drop Handlers ---
+        function handleDragStart(e) {
+            state.draggedEl = this;
+            this.style.opacity = '0.4';
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragOver(e) {
+            if (e.preventDefault) e.preventDefault(); // 允許 Drop
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }
+
+        function handleDragEnter(e) {
+            if (this !== state.draggedEl) {
+                this.classList.add('drag-over');
+            }
+        }
+
+        function handleDragLeave(e) {
+            this.classList.remove('drag-over');
+        }
+
+        function handleDrop(e) {
+            if (e.stopPropagation) e.stopPropagation();
+            this.classList.remove('drag-over');
+
+            if (state.draggedEl && state.draggedEl !== this) {
+                swapElements(state.draggedEl, this);
+                checkWin();
+            }
+            return false;
+        }
+
+        function handleDragEnd(e) {
+            this.style.opacity = '1';
+            state.draggedEl = null;
+            // 清除所有 hover 樣式
+            document.querySelectorAll('.piece').forEach(p => p.classList.remove('drag-over'));
+        }
+
+        // --- Click/Touch Handlers ---
+        function handleClick(e) {
+            // 如果正在拖曳，忽略點擊
+            if (state.draggedEl) return;
+
+            const clickedEl = this;
+
+            if (!state.selectedEl) {
+                // 第一次點選
+                state.selectedEl = clickedEl;
+                updateSelectionVisuals();
+            } else {
+                // 第二次點選
+                if (state.selectedEl !== clickedEl) {
+                    // 交換
+                    swapElements(state.selectedEl, clickedEl);
+                    state.selectedEl = null; // 重置
+                    updateSelectionVisuals();
+                    checkWin();
+                } else {
+                    // 點選同一個 -> 取消選取
+                    state.selectedEl = null;
+                    updateSelectionVisuals();
+                }
+            }
+        }
+
+        function updateSelectionVisuals() {
+            document.querySelectorAll('.piece').forEach(p => p.classList.remove('selected'));
+            if (state.selectedEl) {
+                state.selectedEl.classList.add('selected');
+            }
+        }
+
+        // 交換兩個 DOM 元素的位置
+        function swapElements(el1, el2) {
+            // 建立一個暫存的 text node 作為標記位置
+            const temp = document.createTextNode('');
+            el1.after(temp);
+            el2.after(el1);
+            temp.after(el2);
+            temp.remove();
+        }
+
+        // 檢查勝利條件
+        function checkWin(silent = false) {
+            const currentPieces = Array.from(board.children);
+            let isWin = true;
+
+            for (let i = 0; i < currentPieces.length; i++) {
+                // 檢查 DOM 順序是否等於正確的 index
+                if (parseInt(currentPieces[i].dataset.correctIndex) !== i) {
+                    isWin = false;
+                    break;
+                }
+            }
+
+            if (isWin && !silent) {
+                setTimeout(() => {
+                    modal.classList.add('active');
+                    // 播放一點慶祝特效 (可選)
+                }, 200);
+            }
+            return isWin;
+        }
+
+        // Modal 按鈕使用的重置函式
+        window.resetGame = function() {
+            modal.classList.remove('active');
+            shufflePieces();
+        }
+
+    </script>
+</body>
+</html>
